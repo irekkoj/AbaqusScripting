@@ -1,0 +1,260 @@
+# Created by Joel Loikkanen in collaboration with ChatGPT on 4.22.2025 (Free to use as long as credit is given)
+
+# -*- coding: utf-8 -*-
+
+from part import *
+from material import *
+from section import *
+from assembly import *
+from step import *
+from interaction import *
+from load import *
+from mesh import *
+from optimization import *
+from job import *
+from sketch import *
+from visualization import *
+from connectorBehavior import *
+from abaqus import *
+from abaqusConstants import *
+import regionToolset
+import time
+import timeit
+import os
+from odbAccess import *
+
+# VARIABLES
+ModelBaseName = "Model-"
+JobBaseName = "Job"
+NameNumber = 2
+
+DepthList = [0.15]
+PlyThicknessList = [0.005, 0.006, 0.007, 0.008]
+CoreThicknessList = [50e-3, 60e-3, 70e-3, 80e-3]
+FaceSheetMaterials = ['UD_Carbon_Epoxy']
+CoreMaterials = [
+    'EasyCell75_Closed_Cell_PVC_Foam',
+    'ECK3p2_40_36',
+    'ECK3p2_64_36',
+    'ECK3p2_72_46'
+]
+
+FaceSheetStrengths = {
+    'UD_Carbon_Epoxy': 600e6,
+}
+
+CoreStrengths = {
+    'EasyCell75_Closed_Cell_PVC_Foam': 5e6,
+    'ECK3p2_40_36': 1.83e6,
+    'ECK3p2_64_36': 5.17e6,
+    'ECK3p2_72_46': 5.60e6,
+}
+
+output_file = 'P:\ABAQUS_Results\\01\\01.txt'
+
+if not os.path.exists(output_file):
+    with open(output_file, 'w') as file:
+        file.write("MaxDeflection,Depth,PlyThickness,CoreThickness,FaceMaterial,CoreMaterial,FOS_Skin,FOS_Core,Mass\n")
+
+# MAIN LOOP
+for Depth in DepthList:
+    for Ply_t in PlyThicknessList:
+        for Core_t in CoreThicknessList:
+            for FaceMaterial in FaceSheetMaterials:
+                for CoreMaterial in CoreMaterials:
+
+                    start = timeit.default_timer()
+                    ModelName = ModelBaseName + str(NameNumber)
+                    JobName = JobBaseName + str(NameNumber)
+                    mdb.Model(name=ModelName)
+
+                    odb_path = 'P:\ABAQUS_Results\\01\\' + str(JobName) + '.odb'
+
+                    # Geometry
+                    mdb.models[ModelName].ConstrainedSketch(name='__profile__', sheetSize=1.0)
+                    mdb.models[ModelName].sketches['__profile__'].Line(point1=(0.0, 0.0), point2=(1.0, 0.0))
+                    mdb.models[ModelName].sketches['__profile__'].HorizontalConstraint(
+                        addUndoState=False,
+                        entity=mdb.models[ModelName].sketches['__profile__'].geometry[2]
+                    )
+                    mdb.models[ModelName].Part(dimensionality=THREE_D, name='Part-1', type=DEFORMABLE_BODY)
+                    mdb.models[ModelName].parts['Part-1'].BaseShellExtrude(
+                        depth=Depth,
+                        sketch=mdb.models[ModelName].sketches['__profile__']
+                    )
+                    del mdb.models[ModelName].sketches['__profile__']
+
+                    # Sets and surfaces
+                    mdb.models[ModelName].parts['Part-1'].Surface(name='Surf-1', side1Edges=
+                        mdb.models[ModelName].parts['Part-1'].edges.getSequenceFromMask(('[#2 ]', ),))
+                    mdb.models[ModelName].parts['Part-1'].Set(edges=
+                        mdb.models[ModelName].parts['Part-1'].edges.getSequenceFromMask(('[#8 ]', ),), name='Set-1')
+                    mdb.models[ModelName].parts['Part-1'].Set(faces=
+                        mdb.models[ModelName].parts['Part-1'].faces.getSequenceFromMask(('[#1 ]', ),), name='WholeBody')
+
+                    # MATERIALS
+
+                    # Face Sheets
+                    mdb.models[ModelName].Material(name='UD_Carbon_Epoxy')
+                    mdb.models[ModelName].materials['UD_Carbon_Epoxy'].Density(table=((1600.0,),))
+                    mdb.models[ModelName].materials['UD_Carbon_Epoxy'].Elastic(
+                        type=ENGINEERING_CONSTANTS, 
+                        table=((135e9, 10e9, 10e9, 0.3, 0.022, 0.3, 5e9, 5e9, 3.85e9),)
+                    )
+
+                    mdb.models[ModelName].Material(name='Woven_Carbon_Epoxy')
+                    mdb.models[ModelName].materials['Woven_Carbon_Epoxy'].Density(table=((1600.0,),))
+                    mdb.models[ModelName].materials['Woven_Carbon_Epoxy'].Elastic(
+                        type=ENGINEERING_CONSTANTS, 
+                        table=((70e9, 70e9, 70e9, 0.1, 0.1, 0.1, 5e9, 5e9, 31.8e9),)
+                    )
+
+                    # Core Materials
+                        # EasyCell PVC Foam 
+                    mdb.models[ModelName].Material(name='EasyCell75_Closed_Cell_PVC_Foam')
+                    mdb.models[ModelName].materials['EasyCell75_Closed_Cell_PVC_Foam'].Density(table=((75.0,),))
+                    mdb.models[ModelName].materials['EasyCell75_Closed_Cell_PVC_Foam'].Elastic(
+                        table=((73.75e6, 0.33),)
+                    )
+
+                        # ECK 3.2 - 40 (36) honeycomb
+                    mdb.models[ModelName].Material(name='ECK3p2_40_36')
+                    mdb.models[ModelName].materials['ECK3p2_40_36'].Density(table=((40.0,),))
+                    mdb.models[ModelName].materials['ECK3p2_40_36'].Elastic(
+                        type=ENGINEERING_CONSTANTS,
+                        table=((5e6, 5e6, 121e6, 0.01, 0.01, 0.01, 62e6, 62e6, 62e6),)
+                    )
+
+                        # ECK 3.2 - 64 (36) honeycomb
+                    mdb.models[ModelName].Material(name='ECK3p2_64_36')
+                    mdb.models[ModelName].materials['ECK3p2_64_36'].Density(table=((64.0,),))
+                    mdb.models[ModelName].materials['ECK3p2_64_36'].Elastic(
+                        type=ENGINEERING_CONSTANTS,
+                        table=((5e6, 5e6, 135e6, 0.01, 0.01, 0.01, 75e6, 75e6, 75e6),)
+                    )
+
+                        # ECK 3.2 - 72 (46) honeycomb
+                    mdb.models[ModelName].Material(name='ECK3p2_72_46')
+                    mdb.models[ModelName].materials['ECK3p2_72_46'].Density(table=((72.0,),))
+                    mdb.models[ModelName].materials['ECK3p2_72_46'].Elastic(
+                        type=ENGINEERING_CONSTANTS,
+                        table=((5e6, 5e6, 183e6, 0.01, 0.01, 0.01, 108e6, 108e6, 108e6),)
+                    )
+
+                    
+                    # Assembly
+                    mdb.models[ModelName].rootAssembly.DatumCsysByDefault(CARTESIAN)
+                    mdb.models[ModelName].rootAssembly.Instance(dependent=ON, name='Part-1-1',
+                        part=mdb.models[ModelName].parts['Part-1'])
+
+                    # Meshing
+                    mdb.models[ModelName].parts['Part-1'].seedPart(deviationFactor=0.1, minSizeFactor=0.1, size=0.01)
+                    mdb.models[ModelName].parts['Part-1'].generateMesh()
+
+                    # Layup
+                    layup = mdb.models[ModelName].parts['Part-1'].CompositeLayup(description='',
+                        elementType=SHELL, name='CompositeLayup-1', offsetType=MIDDLE_SURFACE,
+                        symmetric=False, thicknessAssignment=FROM_SECTION)
+                    layup.Section(integrationRule=SIMPSON, poissonDefinition=DEFAULT, preIntegrate=OFF,
+                        temperature=GRADIENT, thicknessType=UNIFORM, useDensity=OFF)
+                    layup.ReferenceOrientation(additionalRotationType=ROTATION_NONE, angle=0.0, axis=AXIS_3,
+                        fieldName='', localCsys=None, orientationType=GLOBAL)
+
+                    ply_config = [
+                        {'material': FaceMaterial, 'angle': 0, 'thickness': Ply_t},
+                        {'material': FaceMaterial, 'angle': 0, 'thickness': Ply_t},
+                        {'material': CoreMaterial, 'angle': 0, 'thickness': Core_t},
+                        {'material': FaceMaterial, 'angle': 0, 'thickness': Ply_t},
+                        {'material': FaceMaterial, 'angle': 0, 'thickness': Ply_t}
+                    ]
+
+                    for i, ply in enumerate(ply_config):
+                        layup.CompositePly(plyName='Ply-{}'.format(i+1),
+                            region=mdb.models[ModelName].parts['Part-1'].sets['WholeBody'],
+                            material=ply['material'], thickness=ply['thickness'],
+                            orientationType=ANGLE_0, angle=ply['angle'], additionalRotationField='',
+                            additionalRotationType=ROTATION_NONE, axis=AXIS_3, numIntPoints=3,
+                            suppressed=False, thicknessType=SPECIFY_THICKNESS)
+
+                    # Step and loads
+                    mdb.models[ModelName].StaticStep(name='Step-1', previous='Initial')
+                    mass = mdb.models[ModelName].parts['Part-1'].getMassProperties()['mass']
+                    print("Mass of composite beam:", mass)
+
+                    mdb.models[ModelName].ShellEdgeLoad(createStepName='Step-1', distributionType=UNIFORM,
+                        field='', localCsys=None, magnitude=100*9.81*(1/Depth), name='Load-1',
+                        region=mdb.models[ModelName].rootAssembly.instances['Part-1-1'].surfaces['Surf-1'],
+                        traction=TRANSVERSE)
+                    mdb.models[ModelName].EncastreBC(createStepName='Step-1', localCsys=None, name='BC-1',
+                        region=mdb.models[ModelName].rootAssembly.instances['Part-1-1'].sets['Set-1'])
+
+                    mdb.models[ModelName].rootAssembly.regenerate()
+                    mdb.Job(name=JobName, model=ModelName, description='', type=ANALYSIS).submit()
+                    mdb.jobs[JobName].waitForCompletion()
+
+                    # Open ODB and post-process
+                    odb = openOdb(odb_path)
+                    max_deflection = 0
+                    max_deflection_details = None
+
+                    try:
+                        last_step = list(odb.steps.keys())[-1]
+                        last_frame = odb.steps[last_step].frames[-1]
+
+                        displacement = last_frame.fieldOutputs['UR']
+                        for value in displacement.values:
+                            deflection_magnitude = (value.data[0]**2 + value.data[1]**2 + value.data[2]**2)**0.5
+                            if deflection_magnitude > max_deflection:
+                                max_deflection = deflection_magnitude
+                                max_deflection_details = (value.nodeLabel, value.data)
+
+                        skin_strength = FaceSheetStrengths[FaceMaterial]
+                        core_strength = CoreStrengths[CoreMaterial]
+
+                        min_fos_skin = float('inf')
+                        min_fos_core = float('inf')
+
+                        stress = last_frame.fieldOutputs['S']
+                        for s in stress.values:
+                            mises = s.mises
+                            if mises > 0:
+                                fos_skin = skin_strength / mises
+                                fos_core = core_strength / mises
+                                if fos_skin < min_fos_skin:
+                                    min_fos_skin = fos_skin
+                                if fos_core < min_fos_core:
+                                    min_fos_core = fos_core
+
+                    finally:
+                        odb.close()
+
+                        # Delete used files
+                        odb_files = [
+                            odb_path,
+                            odb_path.replace('.odb', '.lck'),
+                            odb_path.replace('.odb', '.com'),
+                            odb_path.replace('.odb', '.dat'),
+                            odb_path.replace('.odb', '.msg'),
+                            odb_path.replace('.odb', '.prt')
+                        ]
+
+                        for file_path in odb_files:
+                            if os.path.exists(file_path):
+                                os.remove(file_path)
+
+
+                    # Write output
+                    with open(output_file, 'a') as file:
+                        if max_deflection_details:
+                            file.write("{},{},{},{},{},{},{},{},{}\n".format(
+                                max_deflection,
+                                Depth,
+                                Ply_t,
+                                Core_t,
+                                FaceMaterial,
+                                CoreMaterial,
+                                min_fos_skin,
+                                min_fos_core,
+                                mass))
+
+                    NameNumber += 1
